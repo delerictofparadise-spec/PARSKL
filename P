@@ -1,0 +1,536 @@
+import requests
+from bs4 import BeautifulSoup
+import json
+import time
+from urllib.parse import urljoin, urlencode
+from datetime import datetime
+
+
+class KleinanzeigenParser:
+    def __init__(self):
+        self.base_url = "https://www.kleinanzeigen.de"
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        self.categories = {
+            '1': 'Auto, Rad & Boot',
+            '2': 'Immobilien',
+            '3': 'Familie, Kind & Baby',
+            '4': 'Haus & Garten',
+            '5': 'Elektronik',
+            '6': 'Freizeit, Hobby & Nachbarschaft',
+            '7': 'Mode & Beauty',
+            '8': 'Musik, Film & Buch',
+            '9': 'Dienstleistungen',
+            '10': 'Unterricht & Kurse',
+            '11': 'Jobs',
+            '12': 'Tiere'
+        }
+
+    def show_menu(self):
+        print("\n" + "=" * 60)
+        print("KLEINANZEIGEN PARSER - РАСШИРЕННЫЕ ФИЛЬТРЫ")
+        print("=" * 60)
+
+        print("\n--- Категории ---")
+        for key, value in self.categories.items():
+            print(f"{key}. {value}")
+
+        category = input("\nВыберите категорию (Enter для пропуска): ").strip()
+
+        query = input("\nВведите поисковый запрос: ").strip()
+
+        location = input("Введите город/регион (Enter для пропуска): ").strip()
+
+        print("\n" + "=" * 60)
+        print("💰 ФИЛЬТРЫ ПО ЦЕНЕ")
+        print("=" * 60)
+        price_from = input("Цена от (Enter для пропуска): ").strip()
+        price_to = input("Цена до (Enter для пропуска): ").strip()
+
+        print("\n" + "=" * 60)
+        print("📦 ФИЛЬТРЫ ПО ПРОДАВЦУ")
+        print("=" * 60)
+        seller_ads_from = input("Мин. кол-во активных объявлений у продавца (Enter для пропуска): ").strip()
+        seller_ads_to = input("Макс. кол-во активных объявлений у продавца (Enter для пропуска): ").strip()
+
+        print("\n--- Дата регистрации продавца ---")
+        seller_reg_from = input("Зарегистрирован после (ДД-ММ-ГГГГ, Enter для пропуска): ").strip()
+        seller_reg_to = input("Зарегистрирован до (ДД-ММ-ГГГГ, Enter для пропуска): ").strip()
+
+        print("\n" + "=" * 60)
+        print("👀 ФИЛЬТРЫ ПО ОБЪЯВЛЕНИЮ")
+        print("=" * 60)
+        views_min = input("Мин. кол-во просмотров (Enter для пропуска): ").strip()
+
+        print("\n--- Дата публикации ---")
+        pub_date_from = input("Опубликовано после (ДД-ММ-ГГГГ, Enter для пропуска): ").strip()
+        pub_date_to = input("Опубликовано до (ДД-ММ-ГГГГ, Enter для пропуска): ").strip()
+
+        print("\n--- Доставка ---")
+        print("1. Только с доставкой")
+        print("2. Только без доставки")
+        print("3. Не имеет значения")
+        shipping_filter = input("Выберите вариант (Enter - не имеет значения): ").strip()
+
+        print("\n--- Безопасная оплата ---")
+        print("1. Только с безопасной оплатой")
+        print("2. Только без безопасной оплаты")
+        print("3. Не имеет значения")
+        safe_payment = input("Выберите вариант (Enter - не имеет значения): ").strip()
+
+        print("\n--- Состояние товара ---")
+        print("1. Новое")
+        print("2. Б/у")
+        print("3. Не имеет значения")
+        condition = input("Выберите состояние (Enter для пропуска): ").strip()
+
+        print("\n--- Тип объявления ---")
+        print("1. Предложение")
+        print("2. Поиск")
+        print("3. Все")
+        ad_type = input("Выберите тип (Enter для пропуска): ").strip()
+
+        print("\n--- Сортировка ---")
+        print("1. По актуальности")
+        print("2. По новизне")
+        print("3. По цене (возрастание)")
+        print("4. По цене (убывание)")
+        sort_by = input("Выберите сортировку (Enter - по актуальности): ").strip()
+
+        max_pages = input("\nКоличество страниц для парсинга (по умолчанию 3): ").strip()
+        max_pages = int(max_pages) if max_pages.isdigit() else 3
+
+        filters = {
+            'category': category if category else None,
+            'query': query if query else None,
+            'location': location if location else None,
+            'price_from': price_from if price_from else None,
+            'price_to': price_to if price_to else None,
+            'seller_ads_from': int(seller_ads_from) if seller_ads_from.isdigit() else None,
+            'seller_ads_to': int(seller_ads_to) if seller_ads_to.isdigit() else None,
+            'seller_reg_from': seller_reg_from if seller_reg_from else None,
+            'seller_reg_to': seller_reg_to if seller_reg_to else None,
+            'views_min': int(views_min) if views_min.isdigit() else None,
+            'pub_date_from': pub_date_from if pub_date_from else None,
+            'pub_date_to': pub_date_to if pub_date_to else None,
+            'shipping_filter': shipping_filter if shipping_filter else None,
+            'safe_payment': safe_payment if safe_payment else None,
+            'condition': condition if condition else None,
+            'ad_type': ad_type if ad_type else None,
+            'sort_by': sort_by if sort_by else '1',
+            'max_pages': max_pages
+        }
+
+        return filters
+
+    def show_active_filters(self, filters):
+        print("\n" + "=" * 60)
+        print("ℹ️  АКТИВНЫЕ ФИЛЬТРЫ:")
+        print("=" * 60)
+
+        active = []
+
+        if filters.get('price_from') or filters.get('price_to'):
+            pf = filters.get('price_from', '0')
+            pt = filters.get('price_to', '∞')
+            active.append(f"➤ 💰 Цена: {pf}-{pt}")
+
+        if filters.get('seller_ads_from') or filters.get('seller_ads_to'):
+            sf = filters.get('seller_ads_from', '0')
+            st = filters.get('seller_ads_to', '∞')
+            active.append(f"➤ 📦 Кол-во объявлений продавца: {sf}-{st}")
+
+        if filters.get('views_min'):
+            active.append(f"➤ 👀 Мин. просмотров: {filters['views_min']}")
+
+        if filters.get('pub_date_from') or filters.get('pub_date_to'):
+            pdf = filters.get('pub_date_from', 'любая')
+            pdt = filters.get('pub_date_to', 'любая')
+            active.append(f"➤ 📅 Дата публикации: {pdf} - {pdt}")
+
+        if filters.get('seller_reg_from') or filters.get('seller_reg_to'):
+            srf = filters.get('seller_reg_from', 'любая')
+            srt = filters.get('seller_reg_to', 'любая')
+            active.append(f"➤ 📝 Регистрация продавца: {srf} - {srt}")
+
+        if filters.get('shipping_filter') == '1':
+            active.append("➤ 🚚 Доставка: Только с доставкой")
+        elif filters.get('shipping_filter') == '2':
+            active.append("➤ 🚚 Доставка: Только без доставки")
+
+        if filters.get('safe_payment') == '1':
+            active.append("➤ 💼 Безопасная оплата: Включена")
+        elif filters.get('safe_payment') == '2':
+            active.append("➤ 💼 Безопасная оплата: Выключена")
+
+        if active:
+            for f in active:
+                print(f)
+        else:
+            print("Фильтры не применены")
+
+        print("=" * 60 + "\n")
+
+    def search(self, filters):
+        results = []
+
+        params = {}
+
+        if filters.get('price_from'):
+            params['priceFrom'] = filters['price_from']
+        if filters.get('price_to'):
+            params['priceTo'] = filters['price_to']
+
+        if filters.get('condition') == '1':
+            params['condition'] = 'new'
+        elif filters.get('condition') == '2':
+            params['condition'] = 'used'
+
+        if filters.get('ad_type') == '1':
+            params['adType'] = 'OFFER'
+        elif filters.get('ad_type') == '2':
+            params['adType'] = 'WANTED'
+
+        sort_map = {
+            '1': 'RELEVANCE',
+            '2': 'CREATION_DATE_DESC',
+            '3': 'PRICE_ASC',
+            '4': 'PRICE_DESC'
+        }
+        params['sortBy'] = sort_map.get(filters.get('sort_by', '1'), 'RELEVANCE')
+
+        query = filters.get('query', '')
+        location = filters.get('location', '')
+
+        if location:
+            search_url = f"{self.base_url}/s-{query}/{location}/k0"
+        else:
+            search_url = f"{self.base_url}/s-{query}/k0"
+
+        if params:
+            search_url += '?' + urlencode(params)
+
+        print(f"\nПоиск по URL: {search_url}\n")
+
+        for page in range(filters.get('max_pages', 3)):
+            if page > 0:
+                page_url = f"{search_url}&page={page + 1}"
+            else:
+                page_url = search_url
+
+            print(f"Парсинг страницы {page + 1}...")
+
+            try:
+                response = requests.get(page_url, headers=self.headers, timeout=10)
+                response.raise_for_status()
+
+                soup = BeautifulSoup(response.text, 'html.parser')
+                ads = self.parse_listing_page(soup)
+
+                if not ads:
+                    print("Объявления не найдены на этой странице")
+                    break
+
+                filtered_ads = self.apply_filters(ads, filters)
+                results.extend(filtered_ads)
+
+                print(f"Найдено {len(ads)} объявлений, после фильтрации: {len(filtered_ads)}")
+
+                time.sleep(2)
+
+            except Exception as e:
+                print(f"Ошибка при парсинге страницы {page + 1}: {e}")
+                break
+
+        return results
+
+    def apply_filters(self, ads, filters):
+        filtered = []
+
+        for ad in ads:
+            if not self.check_ad_filters(ad, filters):
+                continue
+            filtered.append(ad)
+
+        return filtered
+
+    def check_ad_filters(self, ad, filters):
+        # Фильтр по просмотрам
+        if filters.get('views_min'):
+            views = ad.get('views', 0)
+            if views < filters['views_min']:
+                return False
+
+        # Фильтр по дате публикации
+        if filters.get('pub_date_from') or filters.get('pub_date_to'):
+            ad_date = ad.get('published_date')
+            if ad_date:
+                try:
+                    ad_dt = datetime.strptime(ad_date, '%d-%m-%Y')
+
+                    if filters.get('pub_date_from'):
+                        from_dt = datetime.strptime(filters['pub_date_from'], '%d-%m-%Y')
+                        if ad_dt < from_dt:
+                            return False
+
+                    if filters.get('pub_date_to'):
+                        to_dt = datetime.strptime(filters['pub_date_to'], '%d-%m-%Y')
+                        if ad_dt > to_dt:
+                            return False
+                except:
+                    pass
+
+        # Фильтр по доставке
+        if filters.get('shipping_filter') == '1':
+            if not ad.get('has_shipping'):
+                return False
+        elif filters.get('shipping_filter') == '2':
+            if ad.get('has_shipping'):
+                return False
+
+        # Фильтр по безопасной оплате
+        if filters.get('safe_payment') == '1':
+            if not ad.get('safe_payment'):
+                return False
+        elif filters.get('safe_payment') == '2':
+            if ad.get('safe_payment'):
+                return False
+
+        # Фильтр по количеству объявлений продавца
+        if filters.get('seller_ads_from') or filters.get('seller_ads_to'):
+            seller_ads = ad.get('seller_active_ads', 0)
+
+            if filters.get('seller_ads_from') and seller_ads < filters['seller_ads_from']:
+                return False
+
+            if filters.get('seller_ads_to') and seller_ads > filters['seller_ads_to']:
+                return False
+
+        # Фильтр по дате регистрации продавца
+        if filters.get('seller_reg_from') or filters.get('seller_reg_to'):
+            seller_reg = ad.get('seller_registration_date')
+            if seller_reg:
+                try:
+                    reg_dt = datetime.strptime(seller_reg, '%d-%m-%Y')
+
+                    if filters.get('seller_reg_from'):
+                        from_dt = datetime.strptime(filters['seller_reg_from'], '%d-%m-%Y')
+                        if reg_dt < from_dt:
+                            return False
+
+                    if filters.get('seller_reg_to'):
+                        to_dt = datetime.strptime(filters['seller_reg_to'], '%d-%m-%Y')
+                        if reg_dt > to_dt:
+                            return False
+                except:
+                    pass
+
+        return True
+
+    def parse_listing_page(self, soup):
+        ads = []
+
+        ad_items = soup.find_all('article', class_='aditem')
+
+        if not ad_items:
+            ad_items = soup.find_all('li', attrs={'data-adid': True})
+
+        for item in ad_items:
+            try:
+                ad_data = self.parse_ad_item(item)
+                if ad_data:
+                    ads.append(ad_data)
+            except Exception as e:
+                print(f"Ошибка при парсинге объявления: {e}")
+                continue
+
+        return ads
+
+    def parse_ad_item(self, item):
+        ad = {}
+
+        ad['id'] = item.get('data-adid') or item.get('data-ad-id')
+
+        title_elem = item.find('a', class_='ellipsis')
+        if title_elem:
+            ad['title'] = title_elem.text.strip()
+            ad['url'] = urljoin(self.base_url, title_elem.get('href', ''))
+
+        price_elem = item.find('p', class_='aditem-main--middle--price-shipping--price')
+        if not price_elem:
+            price_elem = item.find('p', string=lambda t: t and '€' in t)
+
+        if price_elem:
+            price_text = price_elem.text.strip()
+            ad['price'] = price_text
+        else:
+            ad['price'] = 'Не указана'
+
+        # Проверка доставки
+        shipping_text = 'Не указана'
+        has_shipping = False
+
+        price_shipping_container = item.find('div', class_='aditem-main--middle--price-shipping')
+        if price_shipping_container:
+            full_text = price_shipping_container.get_text(separator=' ', strip=True)
+            if 'Versand' in full_text:
+                has_shipping = True
+                parts = full_text.split('Versand')
+                if len(parts) > 1:
+                    shipping_text = 'Versand ' + ' '.join(parts[1].split()[0:3])
+
+        ad['shipping'] = shipping_text
+        ad['has_shipping'] = has_shipping
+
+        # Безопасная оплата
+        safe_payment_elem = item.find(string=lambda t: t and 'Käuferschutz' in t)
+        ad['safe_payment'] = safe_payment_elem is not None
+
+        desc_elem = item.find('p', class_='aditem-main--middle--description')
+        if desc_elem:
+            ad['description'] = desc_elem.text.strip()
+
+        location_elem = item.find('div', class_='aditem-main--top--left')
+        if location_elem:
+            ad['location'] = location_elem.text.strip()
+
+        # Дата публикации
+        date_elem = item.find('div', class_='aditem-main--top--right')
+        if date_elem:
+            date_text = date_elem.text.strip()
+            ad['published_date'] = self.parse_date(date_text)
+
+        img_elem = item.find('img')
+        if img_elem:
+            ad['image'] = img_elem.get('src') or img_elem.get('data-src')
+
+        # Информация о продавце (требуется переход на страницу объявления)
+        ad['views'] = 0
+        ad['seller_active_ads'] = 0
+        ad['seller_registration_date'] = None
+
+        return ad if ad.get('title') else None
+
+    def parse_date(self, date_text):
+        try:
+            if 'Heute' in date_text or 'heute' in date_text:
+                return datetime.now().strftime('%d-%m-%Y')
+            elif 'Gestern' in date_text or 'gestern' in date_text:
+                from datetime import timedelta
+                yesterday = datetime.now() - timedelta(days=1)
+                return yesterday.strftime('%d-%m-%Y')
+            else:
+                # Пытаемся распарсить дату
+                import re
+                date_match = re.search(r'(\d{2})\.(\d{2})\.(\d{4})', date_text)
+                if date_match:
+                    return f"{date_match.group(1)}-{date_match.group(2)}-{date_match.group(3)}"
+        except:
+            pass
+        return None
+
+    def get_ad_details(self, ad_url):
+        try:
+            response = requests.get(ad_url, headers=self.headers, timeout=10)
+            response.raise_for_status()
+
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            details = {
+                'url': ad_url
+            }
+
+            title = soup.find('h1', id='viewad-title')
+            if title:
+                details['title'] = title.text.strip()
+
+            price = soup.find('h2', id='viewad-price')
+            if price:
+                details['price'] = price.text.strip()
+
+            desc = soup.find('p', id='viewad-description-text')
+            if desc:
+                details['description'] = desc.text.strip()
+
+            # Просмотры
+            views_elem = soup.find(string=lambda t: t and 'Aufrufe' in t)
+            if views_elem:
+                import re
+                views_match = re.search(r'(\d+)', views_elem)
+                if views_match:
+                    details['views'] = int(views_match.group(1))
+
+            # Информация о продавце
+            seller_section = soup.find('section', id='vap-seller-information')
+            if seller_section:
+                # Количество активных объявлений
+                active_ads_elem = seller_section.find(string=lambda t: t and 'Aktive Anzeigen' in t)
+                if active_ads_elem:
+                    import re
+                    ads_match = re.search(r'(\d+)', active_ads_elem)
+                    if ads_match:
+                        details['seller_active_ads'] = int(ads_match.group(1))
+
+                # Дата регистрации
+                reg_elem = seller_section.find(string=lambda t: t and 'Mitglied seit' in t)
+                if reg_elem:
+                    details['seller_registration_date'] = reg_elem.strip()
+
+            attributes = soup.find_all('li', class_='addetailslist--detail')
+            details['attributes'] = {}
+            for attr in attributes:
+                label = attr.find('span', class_='addetailslist--detail--label')
+                value = attr.find('span', class_='addetailslist--detail--value')
+                if label and value:
+                    details['attributes'][label.text.strip()] = value.text.strip()
+
+            seller = soup.find('div', id='viewad-contact')
+            if seller:
+                seller_name = seller.find('span', id='viewad-contact-name')
+                if seller_name:
+                    details['seller'] = seller_name.text.strip()
+
+            return details
+
+        except Exception as e:
+            print(f"Ошибка при получении деталей объявления: {e}")
+            return None
+
+
+if __name__ == "__main__":
+    parser = KleinanzeigenParser()
+
+    filters = parser.show_menu()
+
+    parser.show_active_filters(filters)
+
+    print("=" * 60)
+    print("НАЧИНАЕМ ПАРСИНГ...")
+    print("=" * 60 + "\n")
+
+    ads = parser.search(filters)
+
+    print(f"\n{'=' * 60}")
+    print(f"РЕЗУЛЬТАТЫ")
+    print(f"{'=' * 60}")
+    print(f"Всего найдено объявлений: {len(ads)}\n")
+
+    if ads:
+        print("Первые 10 объявлений:\n")
+
+        for i, ad in enumerate(ads[:10], 1):
+            print(f"{i}. {ad.get('title', 'Без названия')}")
+            print(f"   Цена: {ad.get('price', 'Не указана')} | Доставка: {ad.get('shipping', 'Не указана')}")
+            print(f"   Безопасная оплата: {'✓' if ad.get('safe_payment') else '✗'}")
+            print(f"   Локация: {ad.get('location', 'Не указана')}")
+            print(f"   Дата: {ad.get('published_date', 'Не указана')}")
+            print(f"   URL: {ad.get('url', '')}")
+            print()
+
+        with open('kleinanzeigen_results.json', 'w', encoding='utf-8') as f:
+            json.dump(ads, f, ensure_ascii=False, indent=2)
+
+        print(f"\nРезультаты сохранены в kleinanzeigen_results.json")
+    else:
+        print("Объявления не найдены")
